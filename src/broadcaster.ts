@@ -2,7 +2,7 @@ import { WebSocket } from "ws";
 import { buildFrameStatsPacket, buildFramePackets, buildCurrentURLPacket } from "./protocol.js";
 import type { FrameOut } from "./frameProcessor.js";
 
-type OutFrame = { frameId: number; packets: Buffer[] };
+type OutFrame = { frameId?: number | null; packets: Buffer[] };
 type BroadcasterState = { queue: OutFrame[]; sending: boolean };
 
 export class DeviceBroadcaster {
@@ -58,21 +58,18 @@ export class DeviceBroadcaster {
 
     const packet = buildFrameStatsPacket();
     const st = this._ensureState(id);
-    st.queue.push({ frameId: 42, packets: [packet] });
+    st.queue.push({ packets: [packet] });
     this._drainAsync(id).catch(() => {});
   }
 
-  // Send packet with current URL info to connected client:
   public sendCurrentURL(id: string, url: string): void {
     const peers = this._clients.get(id);
     if (!peers || peers.size === 0) return;
 
-    // We use the URL packet packer from protocol.js here
     const packet = buildCurrentURLPacket(url);
     const st = this._ensureState(id);
-    
-    // We use frameId: 0 since this is a control packet, not an image frame
-    st.queue.push({ frameId: 0, packets: [packet] });
+
+    st.queue.push({ packets: [packet] });
     this._drainAsync(id).catch(() => {});
   }
 

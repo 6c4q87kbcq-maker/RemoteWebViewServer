@@ -58,6 +58,8 @@ services:
       DEBUG_PORT: 9221 # internal debug port
       HEALTH_PORT: 18080
       PREFERS_REDUCED_MOTION: false
+      KEYBOARD_SCRIPT_URL: "https://example.com/keyboard.js"
+      KEYBOARD_SCRIPT_ALLOW_HTTP: false
       USER_DATA_DIR: /pw-data
       BROWSER_LOCALE: "en-US"
     ports:
@@ -90,3 +92,16 @@ services:
       - "TCP-LISTEN:9222,fork,reuseaddr,keepalive" # external DevTools port
       - "TCP:127.0.0.1:9221"
 ```
+
+## Optional keyboard script
+
+If you need an on-screen keyboard, the server can inject a JavaScript file loaded from a direct URL.
+
+- `KEYBOARD_SCRIPT_URL` (empty by default): direct URL to a JavaScript file. If set, script injection is enabled.
+- `KEYBOARD_SCRIPT_ALLOW_HTTP` (`false` by default): allow plain HTTP URLs (HTTPS is recommended).
+
+Behavior notes:
+
+- Download timeout is fixed at 5 seconds.
+- If loading fails, streaming continues and keyboard injection is skipped.
+- The downloaded script is cached in memory per server process.

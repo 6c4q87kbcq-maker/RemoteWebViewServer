@@ -36,6 +36,8 @@ options:
   debug_proxy_port: 9222
   health_port: 18080
   prefers_reduced_motion: false
+  keyboard_script_url: ""
+  keyboard_script_allow_http: false
   user_data_dir: "/pw-data"
 
 schema:
@@ -53,4 +55,6 @@ schema:
   debug_proxy_port: int
   health_port: int
   prefers_reduced_motion: bool
+  keyboard_script_url: str
+  keyboard_script_allow_http: bool
   user_data_dir: str
