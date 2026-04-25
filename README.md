@@ -22,7 +22,19 @@ Headless browser that renders target web pages (e.g., Home Assistant dashboards)
 - Health endpoint for container orchestration
 - Optional DevTools access via TCP proxy
 
+## On-screen keyboard
+
+The server does not include a built-in on-screen keyboard, but you can inject any external JavaScript file into every page it renders — including a virtual keyboard of your choice.
+
+- `INJECT_JS_URL` (empty by default): direct HTTPS URL to a JavaScript file. If set, the script is fetched once on startup and injected into every new page via `Page.addScriptToEvaluateOnNewDocument`.
+- `INJECT_JS_ALLOW_HTTP` (`false` by default): allow plain HTTP URLs (HTTPS is strongly recommended).
+
+> [!CAUTION]
+>
+> The injected script runs with full access to every page the server renders, including any active sessions, credentials, and cookies. Only use scripts from sources you fully trust. Never point this at a URL controlled by a third party.
+
 ## Accessing the server’s tab with Chrome DevTools
+
 1. Make sure your server exposes the DevTools (CDP) port (e.g., 9222).
    - If you use a pure Docker container, make sure you have configured and started `debug-proxy`
    - If HA OS addon is used, enable `expose_debug_proxy`
@@ -92,14 +104,3 @@ services:
       - "TCP-LISTEN:9222,fork,reuseaddr,keepalive" # external DevTools port
       - "TCP:127.0.0.1:9221"
 ```
-
-## On-screen keyboard
-
-The server does not include a built-in on-screen keyboard, but you can inject any external JavaScript file into every page it renders — including a virtual keyboard of your choice.
-
-- `INJECT_JS_URL` (empty by default): direct HTTPS URL to a JavaScript file. If set, the script is fetched once on startup and injected into every new page via `Page.addScriptToEvaluateOnNewDocument`.
-- `INJECT_JS_ALLOW_HTTP` (`false` by default): allow plain HTTP URLs (HTTPS is strongly recommended).
-
-> [!CAUTION]
->
-> The injected script runs with full access to every page the server renders, including any active sessions, credentials, and cookies. Only use scripts from sources you fully trust. Never point this at a URL controlled by a third party.
