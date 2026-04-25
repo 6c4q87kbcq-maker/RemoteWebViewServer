@@ -100,4 +100,6 @@ The server does not include a built-in on-screen keyboard, but you can inject an
 - `INJECT_JS_URL` (empty by default): direct HTTPS URL to a JavaScript file. If set, the script is fetched once on startup and injected into every new page via `Page.addScriptToEvaluateOnNewDocument`.
 - `INJECT_JS_ALLOW_HTTP` (`false` by default): allow plain HTTP URLs (HTTPS is strongly recommended).
 
-> **Security notice:** The injected script runs with full access to every page the server renders, including any active sessions, credentials, and cookies. Only use scripts from sources you fully trust. Never point this at a URL controlled by a third party.
+> [!CAUTION]
+>
+> The injected script runs with full access to every page the server renders, including any active sessions, credentials, and cookies. Only use scripts from sources you fully trust. Never point this at a URL controlled by a third party.
