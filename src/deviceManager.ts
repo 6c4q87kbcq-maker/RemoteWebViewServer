@@ -23,13 +23,35 @@ export type DeviceSession = {
   pendingB64?: string;
   throttleTimer?: NodeJS.Timeout;
   lastProcessedMs?: number;
+  processingFrame?: boolean;
 };
 
 const PREFERS_REDUCED_MOTION = /^(1|true|yes|on)$/i.test(process.env.PREFERS_REDUCED_MOTION ?? '');
+const FRAME_PROCESSING_CONCURRENCY = Math.max(1, Number(process.env.FRAME_PROCESSING_CONCURRENCY) || 2);
 
 const devices = new Map<string, DeviceSession>();
 let _cleanupRunning = false;
 export const broadcaster = new DeviceBroadcaster();
+
+let _activeFrameProcessors = 0;
+const _frameProcessorWaiters: (() => void)[] = [];
+
+async function acquireFrameProcessingSlotAsync(): Promise<() => void> {
+  if (_activeFrameProcessors < FRAME_PROCESSING_CONCURRENCY) {
+    _activeFrameProcessors++;
+    return releaseFrameProcessingSlot;
+  }
+
+  await new Promise<void>(resolve => _frameProcessorWaiters.push(resolve));
+  _activeFrameProcessors++;
+  return releaseFrameProcessingSlot;
+}
+
+function releaseFrameProcessingSlot(): void {
+  _activeFrameProcessors = Math.max(0, _activeFrameProcessors - 1);
+  const next = _frameProcessorWaiters.shift();
+  if (next) next();
+}
 
 export async function ensureDeviceAsync(id: string, cfg: DeviceConfig): Promise<DeviceSession> {
   const root = getRoot();
@@ -103,44 +125,68 @@ export async function ensureDeviceAsync(id: string, cfg: DeviceConfig): Promise<
     pendingB64: undefined,
     throttleTimer: undefined,
     lastProcessedMs: undefined,
+    processingFrame: false,
   };
   devices.set(id, newDevice);
   newDevice.processor.requestFullFrame();
 
+  const scheduleFlush = () => {
+    const dev = newDevice;
+    if (dev.processingFrame || dev.throttleTimer) return;
+
+    const now = Date.now();
+    const since = dev.lastProcessedMs ? (now - dev.lastProcessedMs) : Infinity;
+    const delay = Math.max(0, cfg.minFrameInterval - (Number.isFinite(since) ? since : 0));
+    dev.throttleTimer = setTimeout(flushPending, delay);
+  };
+
   const flushPending = async () => {
     const dev = newDevice;
     dev.throttleTimer = undefined;
+    if (dev.processingFrame) return;
 
-    const b64 = dev.pendingB64;
-    dev.pendingB64 = undefined;
-    if (!b64) return;
-
+    dev.processingFrame = true;
     try {
-      const pngFull = Buffer.from(b64, 'base64');
+      const release = await acquireFrameProcessingSlotAsync();
+      try {
+        const b64 = dev.pendingB64;
+        dev.pendingB64 = undefined;
+        if (!b64) return;
 
-      const h32 = hash32(pngFull);
-      if (dev.prevFrameHash === h32) {
-        dev.lastProcessedMs = Date.now();
-        return;
+        try {
+          const pngFull = Buffer.from(b64, 'base64');
+
+          const h32 = hash32(pngFull);
+          if (dev.prevFrameHash === h32) {
+            dev.lastProcessedMs = Date.now();
+            return;
+          }
+          dev.prevFrameHash = h32;
+
+          let img = sharp(pngFull);
+          if (dev.cfg.rotation) img = img.rotate(dev.cfg.rotation);
+
+          const { data, info } = await img
+            .ensureAlpha()
+            .raw()
+            .toBuffer({ resolveWithObject: true });
+          const out = await processor.processFrameAsync({ data, width: info.width, height: info.height });
+          if (out.rects.length > 0) {
+            dev.frameId = (dev.frameId + 1) >>> 0;
+            broadcaster.sendFrameChunked(id, out, dev.frameId, cfg.maxBytesPerMessage);
+          }
+        } catch (e) {
+          console.warn(`[device] Failed to process frame for ${id}: ${(e as Error).message}`);
+        } finally {
+          dev.lastProcessedMs = Date.now();
+        }
+      } finally {
+        release();
       }
-      dev.prevFrameHash = h32;
-
-      let img = sharp(pngFull);
-      if (dev.cfg.rotation) img = img.rotate(dev.cfg.rotation);
-
-      const { data, info } = await img
-        .ensureAlpha()
-        .raw()
-        .toBuffer({ resolveWithObject: true });
-      const out = await processor.processFrameAsync({ data, width: info.width, height: info.height });
-      if (out.rects.length > 0) {
-        dev.frameId = (dev.frameId + 1) >>> 0;
-        broadcaster.sendFrameChunked(id, out, dev.frameId, cfg.maxBytesPerMessage);
-      }
-    } catch (e) {
-      console.warn(`[device] Failed to process frame for ${id}: ${(e as Error).message}`);
     } finally {
-      dev.lastProcessedMs = Date.now();
+      dev.processingFrame = false;
+      if (dev.pendingB64 && broadcaster.getClientCount(dev.deviceId) > 0)
+        scheduleFlush();
     }
   };
 
@@ -152,13 +198,7 @@ export async function ensureDeviceAsync(id: string, cfg: DeviceConfig): Promise<
       return;
     newDevice.lastActive = Date.now();
     newDevice.pendingB64 = evt.data;
-
-    const now = Date.now();
-    const since = newDevice.lastProcessedMs ? (now - newDevice.lastProcessedMs) : Infinity;
-    if (!newDevice.throttleTimer) {
-      const delay = Math.max(0, cfg.minFrameInterval - (Number.isFinite(since) ? since : 0));
-      newDevice.throttleTimer = setTimeout(flushPending, delay);
-    }
+    scheduleFlush();
   });
 
   return newDevice;

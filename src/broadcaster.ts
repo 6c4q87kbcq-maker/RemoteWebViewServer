@@ -3,7 +3,9 @@ import { buildFrameStatsPacket, buildFramePackets } from "./protocol.js";
 import type { FrameOut } from "./frameProcessor.js";
 
 type OutFrame = { frameId: number; packets: Buffer[] };
-type BroadcasterState = { queue: OutFrame[]; sending: boolean };
+type BroadcasterState = { latest?: OutFrame; sending: boolean; droppedFrames: number };
+
+const WS_HIGH_WATER_BYTES = Math.max(64 * 1024, Number(process.env.WS_HIGH_WATER_BYTES) || 512 * 1024);
 
 export class DeviceBroadcaster {
   private _clients = new Map<string, Set<WebSocket>>();
@@ -21,7 +23,7 @@ export class DeviceBroadcaster {
     if (!this._clients.has(id)) this._clients.set(id, new Set());
     this._clients.get(id)!.add(ws);
 
-    if (!this._state.has(id)) this._state.set(id, { queue: [], sending: false });
+    if (!this._state.has(id)) this._state.set(id, { sending: false, droppedFrames: 0 });
 
     console.log(`[broadcaster] Client connected to device ${id}, total clients: ${this._clients.get(id)?.size}`);
     ws.once("close", () => this.removeClient(id, ws));
@@ -48,7 +50,8 @@ export class DeviceBroadcaster {
     const packets = buildFramePackets(data.rects, data.encoding, frameId, data.isFullFrame, maxBytes);
 
     const st = this._ensureState(id);
-    st.queue.push({ frameId, packets });
+    if (st.latest) st.droppedFrames++;
+    st.latest = { frameId, packets };
     this._drainAsync(id).catch(() => {});
   }
 
@@ -58,14 +61,14 @@ export class DeviceBroadcaster {
 
     const packet = buildFrameStatsPacket();
     const st = this._ensureState(id);
-    st.queue.push({ frameId: 42, packets: [packet] });
+    st.latest = { frameId: 42, packets: [packet] };
     this._drainAsync(id).catch(() => {});
   }
 
   private _ensureState(id: string): BroadcasterState {
     let st = this._state.get(id);
     if (!st) {
-      st = { queue: [], sending: false };
+      st = { sending: false, droppedFrames: 0 };
       this._state.set(id, st);
     }
     return st;
@@ -78,14 +81,36 @@ export class DeviceBroadcaster {
 
     try {
       const peers = this._clients.get(id);
-      if (!peers || peers.size === 0) { st.queue.length = 0; return; }
+      if (!peers || peers.size === 0) { st.latest = undefined; return; }
 
-      while (st.queue.length) {
-        const f = st.queue.shift()!;
+      while (st.latest) {
+        const f = st.latest;
+        st.latest = undefined;
+        const readyPeers = new Set<WebSocket>();
+
+        for (const ws of new Set(peers)) {
+          if (ws.readyState !== WebSocket.OPEN) {
+            peers.delete(ws);
+            continue;
+          }
+          if (ws.bufferedAmount > WS_HIGH_WATER_BYTES) {
+            st.droppedFrames++;
+            continue;
+          }
+          readyPeers.add(ws);
+        }
+
+        if (readyPeers.size === 0) {
+          if (peers.size === 0) { st.latest = undefined; return; }
+          await new Promise(resolve => setTimeout(resolve, 10));
+          continue;
+        }
+
         for (const pkt of f.packets) {
-          for (const ws of new Set(peers)) {
+          for (const ws of new Set(readyPeers)) {
             if (ws.readyState !== WebSocket.OPEN) {
               peers.delete(ws);
+              readyPeers.delete(ws);
               continue;
             }
             try {
@@ -94,9 +119,10 @@ export class DeviceBroadcaster {
               // drop on send error
               try { ws.close(); } catch {}
               peers.delete(ws);
+              readyPeers.delete(ws);
             }
           }
-          if (peers.size === 0) { st.queue.length = 0; return; }
+          if (peers.size === 0) { st.latest = undefined; return; }
           await Promise.resolve();
         }
       }

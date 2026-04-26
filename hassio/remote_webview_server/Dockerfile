@@ -1,4 +1,4 @@
-ARG SERVER_IMAGE=docker.io/strangev/remote-webview-server:latest
+ARG SERVER_IMAGE=ghcr.io/6c4q87kbcq-maker/remote-webview-server:multi-display-scheduler
 FROM ${SERVER_IMAGE}
 
 USER root
