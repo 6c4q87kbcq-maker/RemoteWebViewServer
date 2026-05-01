@@ -1,11 +1,12 @@
 import { CDPSession } from "playwright-core";
 import sharp from "sharp";
-import { DeviceConfig, deviceConfigsEqual } from "./config.js";
+import { DeviceConfig, deviceConfigsEqual, readInjectScriptConfig } from "./config.js";
 import { getRoot } from "./cdpRoot.js";
 import { FrameProcessor } from "./frameProcessor.js";
 import { DeviceBroadcaster } from "./broadcaster.js";
 import { hash32 } from "./util.js";
 import { SelfTestRunner } from "./selfTest.js";
+import { getInjectScriptFromUrl } from "./scriptLoader.js";
 
 export type DeviceSession = {
   id: string;
@@ -101,6 +102,11 @@ export async function ensureDeviceAsync(id: string, cfg: DeviceConfig): Promise<
       media: 'screen',
       features: [{ name: 'prefers-reduced-motion', value: 'reduce' }],
     });
+  }
+
+  const keyboardScript = await getInjectScriptFromUrl(readInjectScriptConfig());
+  if (keyboardScript) {
+    await session.send('Page.addScriptToEvaluateOnNewDocument', { source: keyboardScript });
   }
 
   await session.send('Page.startScreencast', {
@@ -211,6 +217,24 @@ export async function ensureDeviceAsync(id: string, cfg: DeviceConfig): Promise<
     scheduleFlush();
   });
 
+  const handleNavigation = (url: string) => {
+    if (newDevice.url !== url) {
+      newDevice.url = url;
+      broadcaster.sendCurrentURL(newDevice.deviceId, url);
+      console.log(`[device] URL changed to: ${url}`);
+    }
+  };
+
+  session.on('Page.frameNavigated', (evt: any) => {
+    // Only track the main frame, ignore iframes
+    if (!evt.frame.parentId) {
+      handleNavigation(evt.frame.url);
+    }
+  });
+  session.on('Page.navigatedWithinDocument', (evt: any) => {
+    handleNavigation(evt.url);
+  });
+  
   return newDevice;
 }
 

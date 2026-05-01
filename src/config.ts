@@ -15,6 +15,11 @@ export type DeviceConfig = {
   rotation: Rotation;               // degrees
 };
 
+export type InjectScriptConfig = {
+  url?: string;
+  allowHttp: boolean;
+};
+
 const DEFAULTS = {
   tileSize: 32,
   fullFrameTileCount: 4,
@@ -26,6 +31,13 @@ const DEFAULTS = {
   maxBytesPerMessage: 14336,
   rotation: 0,
 } as const;
+
+const TRUE_RE = /^(1|true|yes|on)$/i;
+
+function parseBool(value: string | undefined, defaultValue = false): boolean {
+  if (value == null || value.trim() === "") return defaultValue;
+  return TRUE_RE.test(value);
+}
 
 const store = new Map<string, DeviceConfig>();
 
@@ -165,4 +177,16 @@ export function logDeviceConfig(id: string, cfg: DeviceConfig): void {
   const body = entries.map(([k, v]) => `  ${k}=${v}`).join('\n');
 
   console.info(`${head}\n${body}`);
+}
+
+export function readInjectScriptConfig(): InjectScriptConfig {
+  const urlRaw = env.get("INJECT_JS_URL").asString();
+  const url = urlRaw && urlRaw.trim() !== "" ? urlRaw.trim() : undefined;
+  const allowHttpRaw = env.get("INJECT_JS_ALLOW_HTTP").asString();
+  const allowHttp = parseBool(allowHttpRaw, false);
+
+  return {
+    url,
+    allowHttp,
+  };
 }

@@ -28,6 +28,8 @@ export WS_PORT="$(get_opt ws_port 8081)"
 export DEBUG_PORT="$(get_opt debug_port 9221)"
 export HEALTH_PORT="$(get_opt health_port 18080)"
 export PREFERS_REDUCED_MOTION="$(get_opt prefers_reduced_motion false)"
+export INJECT_JS_URL="$(get_opt inject_js_url "")"
+export INJECT_JS_ALLOW_HTTP="$(get_opt inject_js_allow_http false)"
 
 USER_DATA_DIR_OPT="$(get_opt user_data_dir "/pw-data")"
 if [ "$USER_DATA_DIR_OPT" = "/pw-data" ]; then
