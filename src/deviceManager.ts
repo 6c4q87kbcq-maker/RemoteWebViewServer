@@ -24,10 +24,13 @@ export type DeviceSession = {
   throttleTimer?: NodeJS.Timeout;
   lastProcessedMs?: number;
   processingFrame?: boolean;
+  interactiveUntilMs: number;
 };
 
 const PREFERS_REDUCED_MOTION = /^(1|true|yes|on)$/i.test(process.env.PREFERS_REDUCED_MOTION ?? '');
 const FRAME_PROCESSING_CONCURRENCY = Math.max(1, Number(process.env.FRAME_PROCESSING_CONCURRENCY) || 2);
+const IDLE_FRAME_INTERVAL_MS = Math.max(250, Number(process.env.IDLE_FRAME_INTERVAL_MS) || 2000);
+const ACTIVE_AFTER_INTERACTION_MS = Math.max(1000, Number(process.env.ACTIVE_AFTER_INTERACTION_MS) || 30_000);
 
 const devices = new Map<string, DeviceSession>();
 let _cleanupRunning = false;
@@ -53,6 +56,11 @@ function releaseFrameProcessingSlot(): void {
   if (next) next();
 }
 
+export function markDeviceInteractive(dev: DeviceSession, requestFullFrame = false): void {
+  dev.interactiveUntilMs = Date.now() + ACTIVE_AFTER_INTERACTION_MS;
+  if (requestFullFrame) dev.processor.requestFullFrame();
+}
+
 export async function ensureDeviceAsync(id: string, cfg: DeviceConfig): Promise<DeviceSession> {
   const root = getRoot();
   if (!root) throw new Error("CDP not ready");
@@ -61,7 +69,7 @@ export async function ensureDeviceAsync(id: string, cfg: DeviceConfig): Promise<
   if (device) {
     if (deviceConfigsEqual(device.cfg, cfg)) {
       device.lastActive = Date.now();
-      device.processor.requestFullFrame();
+      markDeviceInteractive(device, true);
       return device;
     } else {
       console.log(`[device] Reconfiguring device ${id}`);
@@ -126,6 +134,7 @@ export async function ensureDeviceAsync(id: string, cfg: DeviceConfig): Promise<
     throttleTimer: undefined,
     lastProcessedMs: undefined,
     processingFrame: false,
+    interactiveUntilMs: Date.now() + ACTIVE_AFTER_INTERACTION_MS,
   };
   devices.set(id, newDevice);
   newDevice.processor.requestFullFrame();
@@ -136,7 +145,8 @@ export async function ensureDeviceAsync(id: string, cfg: DeviceConfig): Promise<
 
     const now = Date.now();
     const since = dev.lastProcessedMs ? (now - dev.lastProcessedMs) : Infinity;
-    const delay = Math.max(0, cfg.minFrameInterval - (Number.isFinite(since) ? since : 0));
+    const targetInterval = now <= dev.interactiveUntilMs ? cfg.minFrameInterval : IDLE_FRAME_INTERVAL_MS;
+    const delay = Math.max(0, targetInterval - (Number.isFinite(since) ? since : 0));
     dev.throttleTimer = setTimeout(flushPending, delay);
   };
 

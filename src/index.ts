@@ -2,7 +2,7 @@ import http from 'http';
 import { WebSocketServer } from "ws"
 import env from "env-var";
 import { makeConfigFromParams, setConfigFor, logDeviceConfig } from "./config.js";
-import { broadcaster, ensureDeviceAsync, cleanupIdleAsync } from './deviceManager.js';
+import { broadcaster, ensureDeviceAsync, cleanupIdleAsync, markDeviceInteractive } from './deviceManager.js';
 import { InputRouter } from "./inputRouter.js";
 import { bootstrapAsync } from './browser.js';
 import { MsgType } from './protocol.js';
@@ -32,6 +32,7 @@ wss.on("connection", async (ws, req) => {
     const buf: Buffer = Buffer.isBuffer(msg) ? msg : Buffer.from(msg as ArrayBuffer);
     switch (buf.readUInt8(0)) {
       case MsgType.Touch:
+        markDeviceInteractive(dev);
         inputRouter.handleTouchPacketAsync(dev, buf).catch(e => console.warn(`Failed to handle touch packet: ${(e as Error).message}`));
         break;
       case MsgType.Keepalive:
@@ -41,6 +42,7 @@ wss.on("connection", async (ws, req) => {
         inputRouter.handleFrameStatsPacketAsync(dev, buf).catch(() => console.warn(`Failed to handle Self test packet`));
         break;
       case MsgType.OpenURL:
+        markDeviceInteractive(dev, true);
         inputRouter.handleOpenURLPacketAsync(dev, buf).catch(e => console.warn(`Failed to handle OpenURL packet: ${(e as Error).message}`));
         break;
     }

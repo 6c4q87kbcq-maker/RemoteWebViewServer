@@ -32,6 +32,8 @@ options:
   max_bytes_per_message: 61440
   frame_processing_concurrency: 2
   ws_high_water_bytes: 524288
+  idle_frame_interval_ms: 2000
+  active_after_interaction_ms: 30000
   ws_port: 8081
   debug_port: 9221
   expose_debug_proxy: false
@@ -51,6 +53,8 @@ schema:
   max_bytes_per_message: int
   frame_processing_concurrency: int
   ws_high_water_bytes: int
+  idle_frame_interval_ms: int
+  active_after_interaction_ms: int
   ws_port: int
   debug_port: int
   expose_debug_proxy: bool
