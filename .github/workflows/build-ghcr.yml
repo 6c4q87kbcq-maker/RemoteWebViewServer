@@ -3,7 +3,7 @@ name: build ghcr image
 on:
   push:
     branches:
-      - multi-display-scheduler
+      - main
   workflow_dispatch:
 
 permissions:
